@@ -90,7 +90,7 @@ async def test_list_reservations_unauthenticated(client):
     assert resp.status_code == 403
 
 
-async def test_update_reservation_status_done(client, auth_headers):
+async def test_update_reservation_status_honoured(client, auth_headers):
     shop_id = await _open_shop(client, auth_headers)
     await client.post(f"/api/v1/reservations/{shop_id}", json={"phone_number": "+49123456789"})
     res_list = (await client.get("/api/v1/reservations/", headers=auth_headers)).json()
@@ -99,13 +99,13 @@ async def test_update_reservation_status_done(client, auth_headers):
     resp = await client.patch(
         f"/api/v1/reservations/{res_id}/status",
         headers=auth_headers,
-        params={"new_status": "done"},
+        params={"new_status": "honoured"},
     )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "done"
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "honoured"
 
 
-async def test_update_reservation_status_no_show(client, auth_headers):
+async def test_update_reservation_status_cancelled(client, auth_headers):
     shop_id = await _open_shop(client, auth_headers)
     await client.post(f"/api/v1/reservations/{shop_id}", json={"phone_number": "+49777888999"})
     res_list = (await client.get("/api/v1/reservations/", headers=auth_headers)).json()
@@ -114,13 +114,13 @@ async def test_update_reservation_status_no_show(client, auth_headers):
     resp = await client.patch(
         f"/api/v1/reservations/{res_id}/status",
         headers=auth_headers,
-        params={"new_status": "no_show"},
+        params={"new_status": "cancelled"},
     )
-    assert resp.status_code == 200
-    assert resp.json()["status"] == "no_show"
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["status"] == "cancelled"
 
 
-async def test_done_reservation_not_in_active_list(client, auth_headers):
+async def test_honoured_reservation_not_in_active_list(client, auth_headers):
     shop_id = await _open_shop(client, auth_headers)
     await client.post(f"/api/v1/reservations/{shop_id}", json={"phone_number": "+49123456789"})
     res_id = (await client.get("/api/v1/reservations/", headers=auth_headers)).json()[0]["id"]
@@ -128,7 +128,7 @@ async def test_done_reservation_not_in_active_list(client, auth_headers):
     await client.patch(
         f"/api/v1/reservations/{res_id}/status",
         headers=auth_headers,
-        params={"new_status": "done"},
+        params={"new_status": "honoured"},
     )
     active = (await client.get("/api/v1/reservations/", headers=auth_headers)).json()
     assert all(r["id"] != res_id for r in active)

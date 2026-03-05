@@ -116,15 +116,16 @@ async def test_suggest_wait_time_uses_staff_average(client, auth_headers):
 
 # ── photo upload ──────────────────────────────────────────────────────────────
 
-async def test_upload_shop_photo(client, auth_headers):
+async def test_upload_shop_photo(client, auth_headers, tmp_path):
     png = _minimal_png()
-    with patch.object(_upload, "validate_image_bytes"):  # skip magic-bytes check in unit tests
+    with patch("app.routes.shops.validate_image_bytes"), \
+         patch("app.routes.shops.UPLOAD_DIR", str(tmp_path)):
         resp = await client.post(
             "/api/v1/shops/me/photo",
             headers=auth_headers,
             files={"file": ("photo.png", io.BytesIO(png), "image/png")},
         )
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     assert resp.json()["photo_url"].startswith("/uploads/")
 
 

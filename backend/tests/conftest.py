@@ -38,6 +38,7 @@ _main_module.app.router.lifespan_context = _noop_lifespan
 
 from app.main import app
 from app.core.database import Base, get_db
+from app.core.limiter import limiter
 from app.models.shop import Shop
 from app.models.employee import Employee
 from app.models.reservation import Reservation, ReservationStatus
@@ -83,8 +84,10 @@ async def create_tables():
 
 @pytest.fixture(autouse=True)
 async def clean_tables(create_tables):
-    """Truncate all tables after each test for isolation."""
+    """Truncate all tables and reset rate limiter counters after each test."""
     yield
+    # Clear slowapi in-memory rate limit counters so tests don't interfere.
+    limiter._storage.reset()
     async with _engine.begin() as conn:
         table_names = ", ".join(
             f'"{t.name}"' for t in reversed(Base.metadata.sorted_tables)
