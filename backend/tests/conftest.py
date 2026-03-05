@@ -1,17 +1,16 @@
 """
 Shared fixtures for integration tests.
 
-The test database URL is read from the DATABASE_URL env var (defaulting to a
-local test database). All required settings env vars are set before any app
-module is imported so pydantic-settings picks them up correctly.
+All async tests and fixtures share ONE session-scoped event loop.  This is
+essential for SQLAlchemy asyncpg: the connection pool is tied to the event
+loop, so mixing loops causes "another operation is in progress" errors.
 """
+import asyncio
 import os
 from contextlib import asynccontextmanager
 from unittest.mock import patch
 
 # Set all required env vars BEFORE importing any app module.
-# SMTP_HOST is intentionally left empty so email_service logs codes instead of
-# trying to connect to a real SMTP server.
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/barbertime_test")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-ci-only-not-used-in-production")
 os.environ.setdefault("STRIPE_SECRET_KEY", "sk_test_dummy")
@@ -19,16 +18,16 @@ os.environ.setdefault("STRIPE_WEBHOOK_SECRET", "whsec_dummy")
 os.environ.setdefault("STRIPE_PRICE_ID", "price_dummy")
 os.environ.setdefault("SMTP_HOST", "")
 
-# /app/uploads must exist for FastAPI's StaticFiles mount (happens at import time).
+# /app/uploads must exist for FastAPI's StaticFiles mount at import time.
 os.makedirs("/app/uploads", exist_ok=True)
 
 import pytest
 from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, text
 
-# Replace the app lifespan with a no-op so we don't start the background
-# cleanup loop or try to mkdir /app/uploads a second time during tests.
+# Replace app lifespan with a no-op to avoid starting the background cleanup
+# task and the second makedirs call during tests.
 @asynccontextmanager
 async def _noop_lifespan(app):
     yield
@@ -59,11 +58,21 @@ async def _override_get_db():
 app.dependency_overrides[get_db] = _override_get_db
 
 
+# ── shared event loop (session scope) ────────────────────────────────────────
+# All async tests and fixtures run in this single loop, keeping the asyncpg
+# connection pool consistent across the entire test session.
+
+@pytest.fixture(scope="session")
+def event_loop():
+    loop = asyncio.new_event_loop()
+    yield loop
+    loop.close()
+
+
 # ── database lifecycle ────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="session", autouse=True)
 async def create_tables():
-    """Create all tables once per test session, drop them afterwards."""
     async with _engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
     yield
@@ -76,15 +85,16 @@ async def clean_tables(create_tables):
     """Truncate every table after each test to keep tests isolated."""
     yield
     async with _engine.begin() as conn:
-        for table in reversed(Base.metadata.sorted_tables):
-            await conn.execute(table.delete())
+        table_names = ", ".join(
+            f'"{t.name}"' for t in reversed(Base.metadata.sorted_tables)
+        )
+        await conn.execute(text(f"TRUNCATE {table_names} RESTART IDENTITY CASCADE"))
 
 
 # ── HTTP client ───────────────────────────────────────────────────────────────
 
 @pytest.fixture
 async def client(tmp_path):
-    """HTTP client wired to the FastAPI test app with uploads redirected to tmp_path."""
     import app.core.upload as _upload
     with patch.object(_upload, "UPLOAD_DIR", str(tmp_path)):
         async with AsyncClient(
