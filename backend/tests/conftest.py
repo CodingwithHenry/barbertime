@@ -1,16 +1,17 @@
 """
 Shared fixtures for integration tests.
 
-All async tests and fixtures share ONE session-scoped event loop.  This is
-essential for SQLAlchemy asyncpg: the connection pool is tied to the event
-loop, so mixing loops causes "another operation is in progress" errors.
+All async tests and fixtures run in one shared event loop (session scope).
+This is required because SQLAlchemy's asyncpg connection pool binds to the
+event loop at first use — mixing loops causes "Future attached to a different
+loop" errors.
 """
 import asyncio
 import os
 from contextlib import asynccontextmanager
 from unittest.mock import patch
 
-# Set all required env vars BEFORE importing any app module.
+# ── env vars BEFORE any app import ───────────────────────────────────────────
 os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@localhost:5432/barbertime_test")
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-ci-only-not-used-in-production")
 os.environ.setdefault("STRIPE_SECRET_KEY", "sk_test_dummy")
@@ -18,7 +19,7 @@ os.environ.setdefault("STRIPE_WEBHOOK_SECRET", "whsec_dummy")
 os.environ.setdefault("STRIPE_PRICE_ID", "price_dummy")
 os.environ.setdefault("SMTP_HOST", "")
 
-# /app/uploads must exist for FastAPI's StaticFiles mount at import time.
+# StaticFiles(directory="/app/uploads") is evaluated at import time.
 os.makedirs("/app/uploads", exist_ok=True)
 
 import pytest
@@ -26,8 +27,8 @@ from httpx import AsyncClient, ASGITransport
 from sqlalchemy.ext.asyncio import create_async_engine, async_sessionmaker, AsyncSession
 from sqlalchemy import select, text
 
-# Replace app lifespan with a no-op to avoid starting the background cleanup
-# task and the second makedirs call during tests.
+# Replace the app lifespan with a no-op so we don't start the background
+# cleanup task or re-run makedirs during tests.
 @asynccontextmanager
 async def _noop_lifespan(app):
     yield
@@ -37,7 +38,6 @@ _main_module.app.router.lifespan_context = _noop_lifespan
 
 from app.main import app
 from app.core.database import Base, get_db
-# Import all models so their tables are registered with Base.metadata.
 from app.models.shop import Shop
 from app.models.employee import Employee
 from app.models.reservation import Reservation, ReservationStatus
@@ -58,18 +58,19 @@ async def _override_get_db():
 app.dependency_overrides[get_db] = _override_get_db
 
 
-# ── shared event loop (session scope) ────────────────────────────────────────
-# All async tests and fixtures run in this single loop, keeping the asyncpg
-# connection pool consistent across the entire test session.
+# ── Force all async tests to use the session event loop ──────────────────────
+# Without this, pytest-asyncio creates a new function-scoped loop per test,
+# which is a different loop than the one used by session-scoped fixtures.
+# That would cause asyncpg to raise "Future attached to a different loop".
 
-@pytest.fixture(scope="session")
-def event_loop():
-    loop = asyncio.new_event_loop()
-    yield loop
-    loop.close()
+def pytest_collection_modifyitems(items):
+    session_scope_marker = pytest.mark.asyncio(loop_scope="session")
+    for item in items:
+        if isinstance(item, pytest.Function) and asyncio.iscoroutinefunction(item.function):
+            item.add_marker(session_scope_marker, append=False)
 
 
-# ── database lifecycle ────────────────────────────────────────────────────────
+# ── Database lifecycle ────────────────────────────────────────────────────────
 
 @pytest.fixture(scope="session", autouse=True)
 async def create_tables():
@@ -82,7 +83,7 @@ async def create_tables():
 
 @pytest.fixture(autouse=True)
 async def clean_tables(create_tables):
-    """Truncate every table after each test to keep tests isolated."""
+    """Truncate all tables after each test for isolation."""
     yield
     async with _engine.begin() as conn:
         table_names = ", ".join(
@@ -104,11 +105,10 @@ async def client(tmp_path):
             yield c
 
 
-# ── auth helpers ──────────────────────────────────────────────────────────────
+# ── Auth helpers ──────────────────────────────────────────────────────────────
 
 @pytest.fixture
 async def register(client):
-    """Return a helper that registers a shop and returns its JWT token."""
     async def _register(email="barber@example.com", password="password123", name="Test Shop"):
         resp = await client.post("/api/v1/auth/register", json={
             "email": email,
@@ -132,7 +132,6 @@ async def auth_headers(token):
 
 @pytest.fixture
 async def subscribed_headers(auth_headers):
-    """Set the shop's subscription to active and return auth headers."""
     async with _TestSession() as db:
         result = await db.execute(select(Shop))
         shop = result.scalars().first()
@@ -141,10 +140,9 @@ async def subscribed_headers(auth_headers):
     return auth_headers
 
 
-# ── DB query helpers used across test files ───────────────────────────────────
+# ── DB helper used across test files ─────────────────────────────────────────
 
 async def get_verification_code(email: str, purpose: VerificationPurpose) -> str:
-    """Fetch the latest unused verification code for the given email+purpose."""
     async with _TestSession() as db:
         result = await db.execute(
             select(VerificationCode)
