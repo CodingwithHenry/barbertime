@@ -8,7 +8,8 @@ class Settings(BaseSettings):
 
     STRIPE_SECRET_KEY: str
     STRIPE_WEBHOOK_SECRET: str
-    STRIPE_PRICE_ID: str
+    STRIPE_PRICE_ID_MONTHLY: str
+    STRIPE_PRICE_ID_YEARLY: str
 
     SMTP_HOST: str = ""
     SMTP_PORT: int = 587

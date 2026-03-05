@@ -1,4 +1,5 @@
-from fastapi import APIRouter, Depends, HTTPException, Request
+from typing import Literal
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
@@ -12,6 +13,7 @@ router = APIRouter(prefix="/stripe", tags=["stripe"])
 
 @router.post("/subscribe")
 async def subscribe(
+    plan: Literal["monthly", "yearly"] = Query(...),
     shop: Shop = Depends(get_current_shop),
     db: AsyncSession = Depends(get_db),
 ):
@@ -23,8 +25,13 @@ async def subscribe(
         shop.stripe_customer_id = customer_id
         await db.commit()
 
+    price_id = (
+        settings.STRIPE_PRICE_ID_MONTHLY if plan == "monthly"
+        else settings.STRIPE_PRICE_ID_YEARLY
+    )
     url = await stripe_service.create_checkout_session(
         customer_id=shop.stripe_customer_id,
+        price_id=price_id,
         success_url=f"{settings.FRONTEND_URL}/dashboard/subscription?success=1",
         cancel_url=f"{settings.FRONTEND_URL}/dashboard/subscription",
     )

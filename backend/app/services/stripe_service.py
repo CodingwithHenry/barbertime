@@ -12,11 +12,11 @@ async def create_customer(shop: Shop) -> str:
     return customer.id
 
 
-async def create_checkout_session(customer_id: str, success_url: str, cancel_url: str) -> str:
+async def create_checkout_session(customer_id: str, price_id: str, success_url: str, cancel_url: str) -> str:
     session = stripe.checkout.Session.create(
         customer=customer_id,
         payment_method_types=["card"],
-        line_items=[{"price": settings.STRIPE_PRICE_ID, "quantity": 1}],
+        line_items=[{"price": price_id, "quantity": 1}],
         mode="subscription",
         success_url=success_url,
         cancel_url=cancel_url,

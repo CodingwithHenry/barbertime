@@ -1,0 +1,28 @@
+services:
+  db_test:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: barbertime_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  test:
+    build: ./backend
+    depends_on:
+      db_test:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:postgres@db_test:5432/barbertime_test
+      SECRET_KEY: test-secret-key-not-used-in-production
+      STRIPE_SECRET_KEY: sk_test_dummy
+      STRIPE_WEBHOOK_SECRET: whsec_dummy
+      STRIPE_PRICE_ID_MONTHLY: price_dummy_monthly
+      STRIPE_PRICE_ID_YEARLY: price_dummy_yearly
+      SMTP_HOST: ""
+    command: >
+      sh -c "pip install -q -r requirements-test.txt && pytest -q"

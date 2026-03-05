@@ -16,7 +16,8 @@ os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://postgres:postgres@lo
 os.environ.setdefault("SECRET_KEY", "test-secret-key-for-ci-only-not-used-in-production")
 os.environ.setdefault("STRIPE_SECRET_KEY", "sk_test_dummy")
 os.environ.setdefault("STRIPE_WEBHOOK_SECRET", "whsec_dummy")
-os.environ.setdefault("STRIPE_PRICE_ID", "price_dummy")
+os.environ.setdefault("STRIPE_PRICE_ID_MONTHLY", "price_dummy_monthly")
+os.environ.setdefault("STRIPE_PRICE_ID_YEARLY", "price_dummy_yearly")
 os.environ.setdefault("SMTP_HOST", "")
 
 # StaticFiles(directory="/app/uploads") is evaluated at import time.
