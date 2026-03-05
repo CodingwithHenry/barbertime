@@ -131,7 +131,8 @@ export const discountApi = {
 
 // Stripe
 export const stripeApi = {
-  subscribe: () => request<{ url: string }>("/stripe/subscribe", { method: "POST" }),
+  subscribe: (plan: "monthly" | "yearly") =>
+    request<{ url: string }>(`/stripe/subscribe?plan=${plan}`, { method: "POST" }),
   portal: () => request<{ url: string }>("/stripe/portal"),
 };
 
