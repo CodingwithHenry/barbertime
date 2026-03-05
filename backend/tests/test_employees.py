@@ -80,15 +80,16 @@ async def test_update_other_shop_employee_forbidden(client, register):
 
 # ── photo upload ──────────────────────────────────────────────────────────────
 
-async def test_upload_employee_photo(client, auth_headers):
+async def test_upload_employee_photo(client, auth_headers, tmp_path):
     emp = await _create_employee(client, auth_headers)
-    with patch.object(_upload, "validate_image_bytes"):
+    with patch("app.routes.employees.validate_image_bytes"), \
+         patch("app.routes.employees.UPLOAD_DIR", str(tmp_path)):
         resp = await client.post(
             f"/api/v1/employees/{emp['id']}/photo",
             headers=auth_headers,
-            files={"file": ("photo.png", io.BytesIO(b"\x89PNG\r\n"), "image/png")},
+            files={"file": ("photo.png", io.BytesIO(b"\x89PNG\r\n\x1a\n"), "image/png")},
         )
-    assert resp.status_code == 200
+    assert resp.status_code == 200, resp.text
     assert resp.json()["photo_url"].startswith("/uploads/")
 
 
